@@ -9,11 +9,53 @@ const { MongoClient, ServerApiVersion, ObjectId } = require('mongodb');
 // dotenv
 require('dotenv').config()
 
+// jwt
+const jwt = require('jsonwebtoken');
+
+// cookie parser
+const cookieParser = require('cookie-parser');
+
 
 // middleware
-app.use(cors());
-app.use(express.json());
+// app.use(cors()); // for normal use case
 
+app.use(cors({
+    origin: ['http://localhost:5173'],
+    credentials: true,
+})); 
+
+app.use(express.json());
+app.use(cookieParser());
+
+// custom middleware:
+const logger = async (req, res, next) => {
+    console.log('called:', req.host, req.originalUrl);
+    next();
+}
+
+
+const verifyToken = async (req, res, next) => {
+    const token = req.cookies?.token;
+    console.log('middleware token:', token);
+    if (!token) {
+        return res.status(401).send({ message: 'Not authorized' })
+    };
+
+    jwt.verify(token, process.env.ACCESS_TOKEN_SECRET, (err, decoded) => {
+        // if raise error
+        if (err) {
+            console.log(err);
+            return res.status(401).send({message: 'unauthorized'})
+        }
+
+        // If decoded
+        console.log('Decoded token:', decoded)
+        req.user = decoded
+        next();
+    })
+
+    
+};
 
 
 const uri = `mongodb+srv://${process.env.DB_USER}:${process.env.DB_PASS}@cluster0.cirzz5b.mongodb.net/?retryWrites=true&w=majority`;
@@ -35,6 +77,25 @@ async function run() {
 
         const serviceCollection = client.db('carServiceDB').collection('services');
         const checkOutCollection = client.db('carServiceDB').collection('checkOuts');
+
+
+
+        // auth related api
+        app.post('/jwt', async (req, res) => {
+            const user = req.body;
+            console.log(user);
+
+            const token = jwt.sign(user, process.env.ACCESS_TOKEN_SECRET, {expiresIn: '1h'})
+
+            res
+            .cookie('token', token, {
+                httpOnly: true,
+                secure: false,
+                // sameSite: 'none'
+                })
+            .send({successToken: true});
+            })
+
 
         // get services data
         app.get('/services', async (req, res) => {
@@ -66,20 +127,30 @@ async function run() {
         // })
 
         // insert checkout data
-        app.post('/checkouts', async (req, res) => {
+        app.post('/checkouts', logger, verifyToken, async (req, res) => {
             const order = req.body
+            // console.log('Access Token: ', req.cookies);
+
             // console.log(order);
             const result = await checkOutCollection.insertOne(order);
             res.send(result)
         })
 
         // get checkout data
-        app.get('/checkouts', async (req, res) => {
-            console.log(req.query.email);
+        app.get('/checkouts', logger, verifyToken, async (req, res) => {
+            console.log('From checkouts: ', req.query.email);
+            // console.log('Access Token: ', req.cookies.token);
+            console.log('User from verify Token:', req.user.email);
+
+            // check same user token
+            if (req.query.email !== req.user.email) {
+                return res.status(403).send({message: 'Forbidden Access'})
+            };
+
             let query = {};
             if (req.query?.email) {
                 query = { email: req.query.email };
-            }
+            };
             const result = await checkOutCollection.find(query).toArray();
             res.send(result)
         })
