@@ -20,7 +20,11 @@ const cookieParser = require('cookie-parser');
 // app.use(cors()); // for normal use case
 
 app.use(cors({
-    origin: ['http://localhost:5173'],
+    origin: [
+        // 'http://localhost:5173',
+        'https://car-service-2dc17.web.app',
+        'https://car-service-2dc17.firebaseapp.com'
+    ],
     credentials: true,
 })); 
 
@@ -29,33 +33,32 @@ app.use(cookieParser());
 
 // custom middleware:
 const logger = async (req, res, next) => {
-    console.log('called:', req.host, req.originalUrl);
+    console.log('logger info:', req.method, req.url, req.host)
     next();
 }
 
+// verify token middleware:
+const verifyToken = (req, res, next) => {
+    const token = req?.cookies?.token;
+    console.log('Middleware token:', token);
 
-const verifyToken = async (req, res, next) => {
-    const token = req.cookies?.token;
-    console.log('middleware token:', token);
+    // if no token
     if (!token) {
-        return res.status(401).send({ message: 'Not authorized' })
+        return res.status(401).send({message: 'Unauthorized'})
     };
 
+    // for available token
     jwt.verify(token, process.env.ACCESS_TOKEN_SECRET, (err, decoded) => {
-        // if raise error
         if (err) {
-            console.log(err);
-            return res.status(401).send({message: 'unauthorized'})
+            return res.status(401).send({message: "Unauthorized"})
         }
 
-        // If decoded
-        console.log('Decoded token:', decoded)
-        req.user = decoded
+        req.user = decoded;
         next();
     })
 
     
-};
+}
 
 
 const uri = `mongodb+srv://${process.env.DB_USER}:${process.env.DB_PASS}@cluster0.cirzz5b.mongodb.net/?retryWrites=true&w=majority`;
@@ -90,11 +93,18 @@ async function run() {
             res
             .cookie('token', token, {
                 httpOnly: true,
-                secure: false,
-                // sameSite: 'none'
+                secure: true,
+                sameSite: 'none'
                 })
             .send({successToken: true});
-            })
+        })
+        
+        // logOut clear cookie
+        app.post('/logout', async (req, res) => {
+            const user = req.body;
+            console.log('logging out', user)
+            res.clearCookie('token', {maxAge: 0}).send({clearToken: 'Success'})
+        })
 
 
         // get services data
@@ -112,25 +122,9 @@ async function run() {
             res.send(result);
         })
 
-        // // checkout form
-        // app.get('/services/:id', async (req, body) => {
-        //     const id = req.params.id;
-        //     const query = { _id: new ObjectId(id) };
-
-        //     const options = {
-        //         // Include only the `title` and `price`ans `service_id` and `img` fields in the returned document
-        //         projection: { title: 1, service_id: 1, price: 1, img: 1, facility: 1 },
-        //     };
-
-        //     const result = await serviceCollection.findOne(query, option);
-        //     res.send(result);
-        // })
-
         // insert checkout data
-        app.post('/checkouts', logger, verifyToken, async (req, res) => {
-            const order = req.body
-            // console.log('Access Token: ', req.cookies);
-
+        app.post('/checkouts',  async (req, res) => {
+            const order = req.body;
             // console.log(order);
             const result = await checkOutCollection.insertOne(order);
             res.send(result)
@@ -139,13 +133,12 @@ async function run() {
         // get checkout data
         app.get('/checkouts', logger, verifyToken, async (req, res) => {
             console.log('From checkouts: ', req.query.email);
-            // console.log('Access Token: ', req.cookies.token);
-            console.log('User from verify Token:', req.user.email);
+            
+            console.log('From server cookies:', req.cookies)
 
-            // check same user token
-            if (req.query.email !== req.user.email) {
+            if (req.user.email !== req.query.email) {
                 return res.status(403).send({message: 'Forbidden Access'})
-            };
+            }
 
             let query = {};
             if (req.query?.email) {
