@@ -56,8 +56,6 @@ const verifyToken = (req, res, next) => {
         req.user = decoded;
         next();
     })
-
-    
 }
 
 
@@ -80,7 +78,6 @@ async function run() {
 
         const serviceCollection = client.db('carServiceDB').collection('services');
         const checkOutCollection = client.db('carServiceDB').collection('checkOuts');
-
 
 
         // auth related api
@@ -181,8 +178,6 @@ async function run() {
     }
 }
 run().catch(console.dir);
-
-
 
 
 
